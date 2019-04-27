@@ -130,3 +130,20 @@ local({
 })
 ```
 
+# Summary
+
+```{r}
+sortedSplits <- local({
+  nuts2Lookup <- data.frame(NUTS218CD=nuts2$NUTS218CD, NUTS218NM=nuts2$NUTS218NM) 
+  splits <- merge(nuts2Lookup, nuts2Splits, by.x = 'NUTS218CD', by.y = 'area')
+  splits[order(-splits$weightedSplit), c(
+    'NUTS218CD', 'NUTS218NM', 'weightedSplit',
+    'femaleSplit', 'ageSplit', 'studentSplit', 'euSplit', 'commonwealthSplit', 'turnoutSplit'
+  )]
+})
+head(sortedSplits, 10)
+```
+
+```{r}
+tail(sortedSplits)
+```
