@@ -4,6 +4,8 @@
 .RData
 .Rhistory
 /bes/*.sav
+/bes/*.dta
 /fig/*.RData
 /fig/*.png
 /cleaned/*.RData
+.Rproj.user

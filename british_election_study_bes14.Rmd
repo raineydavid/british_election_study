@@ -1,0 +1,132 @@
+---
+title: "British Election Study: BES2017 Wave 14"
+output: html_notebook
+---
+
+
+```{r}
+library(ggplot2)
+library(leaflet)
+library(reshape2)
+```
+
+## Basics
+
+```{r}
+load('cleaned/bes14.RData')
+load('cleaned/nuts2.RData')
+```
+
+```{r}
+names(bes14)
+```
+
+```{r}
+summary(bes14$profile_turnout_2017)
+```
+
+
+```{r}
+findTargetSplits <- function (bes) {
+  genderTarget <- transform(
+    aggregate(cbind(
+      male = gender == 'Male',
+      female = gender == 'Female'
+    ) ~ area, bes, sum),
+    genderTotal = male + female,
+    femaleSplit = female / (male + female)
+  )
+  
+  ageTarget <- transform(
+    aggregate(cbind(
+      younger = (ageGroup == 'Under 18' | ageGroup == '18-25'),
+      age2645 = (ageGroup == '26-35' | ageGroup == '36-45'),
+      older = (ageGroup == '46-55' | ageGroup == '56-65' | ageGroup == '66+')
+    ) ~ area, bes, sum),
+    ageTotal = younger + age2645 + older,
+    ageSplit = age2645 / (younger + age2645 + older)
+  )
+  
+  studentTarget <- transform(
+    aggregate(cbind(
+      student = (workingStatus == 'Full time university student' | workingStatus == 'Other full time student'),
+      nonStudent = !(workingStatus == 'Full time university student' | workingStatus == 'Other full time student')
+    ) ~ area, bes, sum),
+    studentTotal = student + nonStudent,
+    studentSplit = student / (student + nonStudent)
+  )
+  
+  euTarget <- transform(
+    aggregate(cbind(
+      eu = (euCitizen & !ukCitizen),
+      nonEu = !(euCitizen & !ukCitizen)
+    ) ~ area, bes, sum),
+    euTotal = eu + nonEu,
+    euSplit = eu / (eu + nonEu)
+  )
+  
+  commonwealthTarget <- transform(
+    aggregate(cbind(
+      commonwealth = (commonwealthCitizen & !ukCitizen),
+      nonCommonwealth = !(commonwealthCitizen & !ukCitizen)
+    ) ~ area, bes, sum),
+    commonwealthTotal = commonwealth + nonCommonwealth,
+    commonwealthSplit = commonwealth / (commonwealth + nonCommonwealth)
+  )
+  
+  turnoutTarget <- transform(
+    aggregate(cbind(
+      turnout = profile_turnout_2017,
+      noTurnout = !profile_turnout_2017
+    ) ~ area, bes, sum),
+    turnoutTotal = turnout + noTurnout,
+    turnoutSplit = noTurnout / (turnout + noTurnout)
+  )
+  
+  targetSplits <- merge(genderTarget, merge(
+    ageTarget, merge(
+      studentTarget, merge(
+        euTarget, merge(
+          commonwealthTarget, turnoutTarget, all = TRUE
+        ), all = TRUE
+      ), all = TRUE
+    ), all = TRUE
+  ), all = TRUE)
+  
+  alpha <- 0.01
+  targetSplits <- transform(
+    targetSplits,
+    weightedSplit =
+      1.0 * log(femaleSplit + alpha) +
+      1.0 * log(ageSplit + alpha) +
+      1.0 * log(studentSplit + alpha) +
+      0.1 * log(euSplit + alpha) +
+      0.1 * log(commonwealthSplit + alpha) +
+      1.0 * log(turnoutSplit + alpha)
+  )
+  
+  targetSplits
+}
+nuts2Splits <- findTargetSplits(transform(bes14, area = NUTS218CD))
+nuts2Splits
+```
+
+
+
+```{r}
+head(nuts2)
+```
+
+```{r}
+local({
+  nuts2WithData <- merge(nuts2, nuts2Splits, by.x = 'NUTS218CD', by.y = 'area')
+  pal <- colorNumeric('Blues', NULL)
+  leaflet(nuts2WithData) %>%
+    addPolygons(
+      stroke = FALSE, smoothFactor = 0.3, fillOpacity = 1,
+      fillColor = ~pal(weightedSplit),
+      label = ~paste0(NUTS218CD, ' ', NUTS218NM, ": ", formatC(weightedSplit, big.mark = ","))) %>%
+    addLegend(pal = pal, values = ~weightedSplit, opacity = 1.0)
+})
+```
+

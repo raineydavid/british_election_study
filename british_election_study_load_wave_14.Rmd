@@ -1,0 +1,186 @@
+---
+title: "British Election Study: Load"
+output: html_notebook
+---
+
+```{r}
+library(fmsb)
+library(foreign) # for spss import
+library(readstata13) # for stata (version 13+) import
+library(rgdal)
+library(XML)
+```
+
+## Load BES Data
+
+### Wave 13
+
+For possible comparison.
+
+```{r}
+bes13Full <- read.spss(file = 'bes/BES2017_W13_v1.5.sav', to.data.frame = TRUE)
+```
+
+```{r}
+# names(bes13Full)
+```
+
+```{r}
+bes13 <- subset(
+  bes13Full,
+  gender == 'Female',
+  select = c(
+    id, country, countryOfBirth,
+    profile_eurefturnout, # ... Did you manage to vote in the EU referendum?
+    profile_eurefvote, # Which way did you vote?
+    gender, # Are you male or female?
+    profile_gross_personal, # Income – gross personal
+    profile_turnout_2017, # Turnout at 2017 general election
+    profile_past_vote_2017, # Vote at 2017 general election
+    profile_lea, # The Local education authority of the respondent
+    profile_oslaua, # The local authority of the respondent
+    profile_pcon, # The parliamentary constituency of the respondent
+    age, # (as of Jan 2014) What is your age?
+    ageGroup, # What is your age?
+    edlevel, # undocumented
+    education # What is the highest educational or work-related qualification you have?
+  )
+)
+```
+
+```{r}
+head(bes13)
+```
+
+### Wave 14
+
+Load both Stata and SPSS data to see if the imports are the same.
+
+#### Stata Import
+
+```{r}
+bes14FullDta <- read.dta13(file = 'bes/BES2017_W14_v0.3.dta', generate.factors = TRUE)
+```
+
+#### SPSS Import
+
+```{r}
+bes14Full <- read.spss(file = 'bes/BES2017_W14_v0.3.sav', to.data.frame = TRUE)
+```
+
+#### Stata / SPSS Comparison
+
+```{r}
+c(length(names(bes14FullDta)), length(names(bes14Full)), nrow(bes14Full), nrow(bes14Full))
+```
+
+```{r}
+setdiff(names(bes14FullDta), names(bes14Full))
+```
+```{r}
+setdiff(names(bes14Full), names(bes14FullDta))
+```
+
+They look comparable.
+
+## Cleaning
+
+```{r}
+source('cleaning.R')
+```
+
+```{r}
+summary(cleanTimestamp(bes13Full$starttime))
+```
+
+```{r}
+summary(cleanTimestamp(bes14Full$starttime))
+```
+
+### Local Authority District to Region
+
+```{r}
+localAuthorityDistrictToNUTS <- read.csv(
+  'map/Local_Authority_District_to_LAU1_to_NUTS3_to_NUTS2_to_NUTS1_January_2018_Lookup_in_United_Kingdom.csv')
+head(localAuthorityDistrictToNUTS)
+```
+
+```{r}
+mergeNUTS <- function (bes) {
+  merge(
+    bes,
+    subset(localAuthorityDistrictToNUTS, select = c(NUTS218CD, NUTS218NM, NUTS118CD, NUTS118NM, LAD16CD, LAD16NM)),
+    by.x = 'profile_oslaua',
+    by.y = 'LAD16NM'
+  )
+}
+```
+
+Which LAs do I have regions for?
+
+```{r}
+local({
+  missing <- sort(setdiff(
+    cleanProfileOslaua(bes14Full$profile_oslaua),
+    localAuthorityDistrictToNUTS$LAD16NM))
+  print(missing)
+  nrow(subset(bes14Full, profile_oslaua %in% missing))
+})
+```
+
+So, we have all of them for wave 14. 
+
+### Merge
+
+```{r}
+bes14 <- subset(
+  mergeNUTS(
+    transform(
+      bes14Full,
+      starttime = cleanTimestamp(starttime),
+      ukCitizen = cleanYesNo(ukCitizen),
+      euCitizen = cleanYesNo(euCitizen),
+      commonwealthCitizen = cleanYesNo(commonwealthCitizen),
+      otherCitizen = cleanYesNo(otherCitizen),
+      profile_eurefturnout = cleanVoted(profile_eurefturnout),
+      profile_eurefvote = cleanRefVoteBoolean(profile_eurefvote),
+      profile_gross_personal = cleanIncome(profile_gross_personal)$lower,
+      profile_turnout_2017 = cleanVoted(profile_turnout_2017)
+    )
+  ),
+  select = c(
+    id, starttime,
+    country, countryOfBirth,
+    workingStatus, # Which of these best describes what you were doing last week?
+    ukCitizen, # eligible: Are you a citizen of any of the following
+    euCitizen,
+    commonwealthCitizen,
+    otherCitizen,
+    profile_eurefturnout, # ... Did you manage to vote in the EU referendum?
+    profile_eurefvote, # Which way did you vote?
+    gender, # Are you male or female?
+    profile_gross_personal, # Income – gross personal
+    profile_turnout_2017, # Turnout at 2017 general election
+    profile_past_vote_2017, # Vote at 2017 general election
+    age, # as of Jan 2014
+    ageGroup,
+    edlevel, # undocumented
+    education, # What is the highest educational or work-related qualification you have?
+    profile_lea, # The Local education authority of the respondent
+    profile_oslaua, # The local authority [district name] of the respondent
+    pcon, # The parliamentary constituency of the respondent
+    LAD16CD, # Local authority district code
+    NUTS218CD, # NUTS 2
+    NUTS218NM,
+    NUTS118CD, # NUTS 1 and (almost) European Electoral Regions
+    NUTS118NM
+  )
+)
+summary(bes14)
+```
+
+### Save
+
+```{r}
+save(bes14, file = 'cleaned/bes14.RData')
+```
